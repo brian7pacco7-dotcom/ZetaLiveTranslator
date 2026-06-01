@@ -1,5 +1,78 @@
-ZetaLiveTranslator/
- ├─ .github/
- │   └─ workflows/
- │       └─ build-apk-from-zip.yml
- └─ ZetaLiveTranslator_V1.zip
+name: Build APK from ZIP
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Buscar ZIP o proyecto Android
+        shell: bash
+        run: |
+          set -e
+          rm -rf work
+          mkdir -p work
+          ZIP_FILE=$(find "$GITHUB_WORKSPACE" -maxdepth 2 -type f -name "*.zip" ! -path "*/.git/*" | head -n 1 || true)
+          if [ -n "$ZIP_FILE" ]; then
+            echo "ZIP encontrado: $ZIP_FILE"
+            unzip -q "$ZIP_FILE" -d work
+          else
+            echo "No hay ZIP. Se intentará compilar el proyecto actual."
+            mkdir -p work/current
+            rsync -a --exclude='.git' --exclude='work' ./ work/current/
+          fi
+          SETTINGS_FILE=$(find work -name "settings.gradle" -o -name "settings.gradle.kts" | head -n 1)
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "No encontré settings.gradle dentro del ZIP/proyecto."
+            exit 1
+          fi
+          PROJECT_DIR=$(dirname "$SETTINGS_FILE")
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Proyecto Android: $PROJECT_DIR"
+
+      - name: Descargar Gradle
+        shell: bash
+        run: |
+          set -e
+          curl -L -o gradle.zip https://services.gradle.org/distributions/gradle-8.10.2-bin.zip
+          unzip -q gradle.zip
+          echo "GRADLE_BIN=$GITHUB_WORKSPACE/gradle-8.10.2/bin/gradle" >> "$GITHUB_ENV"
+
+      - name: Compilar APK Debug
+        shell: bash
+        run: |
+          set -e
+          cd "$PROJECT_DIR"
+          "$GRADLE_BIN" assembleDebug --stacktrace
+
+      - name: Preparar APK
+        shell: bash
+        run: |
+          set -e
+          mkdir -p salida
+          APK=$(find "$PROJECT_DIR" -path "*/build/outputs/apk/debug/*.apk" | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "No encontré el APK generado."
+            exit 1
+          fi
+          cp "$APK" "salida/ZetaLiveTranslator_V1_debug.apk"
+          ls -lh salida
+
+      - name: Subir APK generado
+        uses: actions/upload-artifact@v4
+        with:
+          name: ZetaLiveTranslator_APK
+          path: salida/ZetaLiveTranslator_V1_debug.apk
