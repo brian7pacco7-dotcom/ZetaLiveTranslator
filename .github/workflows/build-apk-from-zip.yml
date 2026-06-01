@@ -1,0 +1,5 @@
+ZetaLiveTranslator/
+ ├─ .github/
+ │   └─ workflows/
+ │       └─ build-apk-from-zip.yml
+ └─ ZetaLiveTranslator_V1.zip
